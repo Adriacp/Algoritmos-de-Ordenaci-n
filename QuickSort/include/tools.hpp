@@ -13,6 +13,7 @@ std::vector<float> generateRandomVectorFloat(size_t size) {
   return vec;
 }
   
+
 template<typename T>
 std::vector<T> QuickSort(const std::vector<T>& vec) {
   if (vec.size() <= 1) {
