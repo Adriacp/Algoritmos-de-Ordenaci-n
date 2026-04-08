@@ -1,18 +1,11 @@
 #include <vector>
 #include <iostream>
 
+
 std::vector<float> generateRandomVectorFloat(size_t size) {
   std::vector<float> vec(size);
   for (size_t i = 0; i < size; ++i) {
-      vec[i] = static_cast<float>(rand()) / RAND_MAX; // Generate random float between 0 and 1
-  }
-  return vec;
-}
-
-std::vector<int> generateRandomVectorInt(size_t size) {
-  std::vector<int> vec(size);
-  for (size_t i = 0; i < size; ++i) {
-      vec[i] = rand() % 100; // Generate random integer between 0 and 99
+      vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX); // Generate random value of type T
   }
   return vec;
 }
