@@ -1,0 +1,3 @@
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/QuickSort/src/build/CMakeFiles/main.dir
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/QuickSort/src/build/CMakeFiles/edit_cache.dir
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/QuickSort/src/build/CMakeFiles/rebuild_cache.dir

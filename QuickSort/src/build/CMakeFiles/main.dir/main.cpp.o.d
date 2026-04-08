@@ -1,7 +1,7 @@
 CMakeFiles/main.dir/main.cpp.o: \
- /home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/MergeSort/src/main.cpp \
+ /home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/QuickSort/src/main.cpp \
  /usr/include/stdc-predef.h \
- /home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/MergeSort/src/../include/tools.hpp \
+ /home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/QuickSort/src/../include/tools.hpp \
  /usr/include/c++/15.2.1/vector \
  /usr/include/c++/15.2.1/bits/requires_hosted.h \
  /usr/include/c++/15.2.1/x86_64-pc-linux-gnu/bits/c++config.h \

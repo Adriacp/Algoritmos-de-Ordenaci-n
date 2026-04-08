@@ -1,8 +1,11 @@
 #include <vector>
+#include <cstdlib>
 #include <iostream>
+#include <ctime>
 
 
 std::vector<float> generateRandomVectorFloat(size_t size) {
+  std::srand(std::time(nullptr)); // Seed the random number generator
   std::vector<float> vec(size);
   for (size_t i = 0; i < size; ++i) {
       vec[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX); // Generate random value of type T
