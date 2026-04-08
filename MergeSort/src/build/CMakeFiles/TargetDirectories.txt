@@ -1,0 +1,3 @@
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/MergeSort/src/build/CMakeFiles/main.dir
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/MergeSort/src/build/CMakeFiles/edit_cache.dir
+/home/richarmili/Documentos/Algoritmos-de-Ordenaci-n/MergeSort/src/build/CMakeFiles/rebuild_cache.dir
