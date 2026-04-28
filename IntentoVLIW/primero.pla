@@ -1,0 +1,269 @@
+// ================================================================
+//  INSERTION SORT VLIW — n PAR Y MÚLTIPLO DE 4 GARANTIZADO
+//
+//  Restricción explotada: n ∈ {4, 8, 12, 16, ...}
+//    → Fase 2 (copia): exactamente n iteraciones → desenrollado x4
+//      sin prólogo especial ni epílogo de guarda
+//    → Fase 3 (sort):  n-1 iteraciones del OUTER → con n múltiplo
+//      de 4, n-1 es impar; desenrollamos x2 con exactamente
+//      un epílogo de UNA iteración (la última, i = base+n-1)
+//
+//  Técnicas aplicadas:
+//    A) Planificación local   — compactación dentro de bloque básico
+//    B) Planificación global  — cargas especulativas entre bloques
+//    C) Desenrollado x4       — Fase 2 (sin epílogo)
+//    D) Desenrollado x2       — Fase 3 OUTER (epílogo de 1 iter)
+//    E) Software pipelining   — Fase 2 (prólogo fijo + cuerpo)
+//
+//  Registros:
+//    R0  = constante 0
+//    R1  = n
+//    R2  = src
+//    R3  = dest
+//    R4  = puntero lectura  (Fase 2)
+//    R5  = puntero escritura (Fase 2)
+//    R6  = src + n  (límite Fase 2)
+//    R8  = i  (puntero outer Fase 3)
+//    R9  = dest + n  (límite outer)
+//    R12 = j  (puntero inner)
+//    R13 = j - 1
+//    F1..F4 = buffer rotativo Fase 2 (4 elementos en vuelo)
+//    F5  = key  (Fase 3)
+//    F6  = A[j-1] candidato a desplazar
+//
+//  Formato VLIW — 5 slots:
+//  [ ALU1 | ALU2 | MEM | FP/CMP | BR ]
+// ================================================================
+
+
+// ================================================================
+//  FASE 1 — CARGA DE PARÁMETROS
+//  Planificación local: independientes, un puerto MEM.
+//
+//        ALU1     ALU2     MEM           FP/CMP   BR
+// ================================================================
+
+W01:     NOP      NOP      LW R1 0(R0)   NOP      NOP      // n
+W02:     NOP      NOP      LW R2 1(R0)   NOP      NOP      // src
+W03:     NOP      NOP      LW R3 2(R0)   NOP      NOP      // dest
+
+
+// ================================================================
+//  FASE 2 — COPIA src → dest  (exactamente n iter, múltiplo de 4)
+//
+//  Software pipelining con buffer de 4 registros flotantes.
+//  Al ser n múltiplo de 4, el cuerpo cubre todas las iteraciones
+//  exactamente, sin epílogo de guarda.
+//
+//  Estado del pipeline en el steady-state:
+//    Ciclo k:  SF(k-4)  SF(k-3)  LF(k+1)  LF(k+2)   branch
+//              ya en F1  ya en F2  → F3      → F4
+//
+//  Prólogo: 4 cargas iniciales para llenar el buffer.
+//  Cuerpo:  cada palabra almacena 2 y carga 2 del siguiente grupo.
+//  No hay epílogo porque n/4 es entero exacto.
+// ================================================================
+
+// --- Inicializar punteros ---
+
+//        ALU1          ALU2          MEM      FP/CMP   BR
+W04:     ADD R4 R2 R0  ADD R5 R3 R0  NOP      NOP      NOP
+W05:     ADD R6 R2 R1  NOP           NOP      NOP      NOP      // límite
+
+// --- Prólogo: precargar 4 elementos (llenar buffer rotativo) ---
+
+//        ALU1          ALU2          MEM            FP/CMP   BR
+W06:     NOP           NOP           LF F1 0(R4)    NOP      NOP      // elem 0
+W07:     ADDI R4 R4 #1 NOP           LF F2 0(R4)    NOP      NOP      // elem 1
+W08:     ADDI R4 R4 #1 NOP           LF F3 0(R4)    NOP      NOP      // elem 2
+W09:     ADDI R4 R4 #1 NOP           LF F4 0(R4)    NOP      NOP      // elem 3
+W10:     ADDI R4 R4 #1 NOP           NOP            NOP      NOP      // R4 apunta a elem 4
+
+// --- Cuerpo: desenrollado x4 con pipeline activo ---
+// Cada vuelta: almacena F1,F2,F3,F4 (grupo anterior)
+//              carga en F1,F2,F3,F4 (siguiente grupo)
+// Al ser n múltiplo de 4, este bucle ejecuta exactamente n/4 - 1
+// veces (la primera vuelta usa el prólogo).
+// El branch compara R4 con R6 (src+n): cuando R4 == R6 no hay
+// más grupos que cargar y salimos.
+
+//        ALU1          ALU2          MEM            FP/CMP   BR
+COPY_L:
+W11:     ADDI R5 R5 #1 ADDI R4 R4 #1 SF F1 0(R5)   NOP      NOP      // store elem i+0, avanza dest y src
+W12:     ADDI R5 R5 #1 ADDI R4 R4 #1 LF F1 0(R4)   NOP      NOP      // store slot, carga elem i+4
+W13:     ADDI R5 R5 #1 NOP           SF F2 0(R5)    NOP      NOP      // store elem i+1
+W14:     NOP           ADDI R4 R4 #1 LF F2 0(R4)    NOP      NOP      // carga elem i+5
+W15:     ADDI R5 R5 #1 NOP           SF F3 0(R5)    NOP      NOP      // store elem i+2
+W16:     NOP           ADDI R4 R4 #1 LF F3 0(R4)    NOP      NOP      // carga elem i+6
+W17:     ADDI R5 R5 #1 NOP           SF F4 0(R5)    NOP      NOP      // store elem i+3
+W18:     NOP           NOP           LF F4 0(R4)    NOP      BNE R4 R6 COPY_L  // carga i+7, branch
+
+// --- Epílogo: vaciar los 4 elementos que quedan en el buffer ---
+// (el bucle salió con F1..F4 cargados pero no almacenados)
+
+//        ALU1          ALU2          MEM            FP/CMP   BR
+W19:     ADDI R5 R5 #1 NOP           SF F1 0(R5)    NOP      NOP
+W20:     ADDI R5 R5 #1 NOP           SF F2 0(R5)    NOP      NOP
+W21:     ADDI R5 R5 #1 NOP           SF F3 0(R5)    NOP      NOP
+W22:     ADDI R5 R5 #1 NOP           SF F4 0(R5)    NOP      NOP
+
+
+// ================================================================
+//  FASE 3 — INSERTION SORT sobre dest
+//
+//  n múltiplo de 4  →  n-1 iteraciones del OUTER (impar)
+//  Desenrollado x2 del OUTER: procesa i e i+1 por vuelta.
+//  Las (n-1)/2 vueltas son exactamente (n-2)/2 vueltas completas
+//  + 1 iteración suelta (la última, i = dest+n-1).
+//
+//  Ejemplo n=8: OUTER i ∈ {1,2,3,4,5,6,7}  →  7 iter
+//    3 vueltas x2 (i=1&2, i=3&4, i=5&6) + 1 epílogo (i=7)
+//
+//  Planificación global: LF key se mueve antes del BEQ del OUTER
+//  de forma especulativa (si el branch se toma, F5 se descarta).
+//
+//  El INNER no admite pipelining (dependencia de flujo).
+//  Planificación local dentro de SHIFT: SUB+SF en la misma palabra.
+// ================================================================
+
+// --- Inicializar ---
+
+//        ALU1           ALU2          MEM      FP/CMP   BR
+W23:     ADDI R8 R3 #1  ADD R9 R3 R1  NOP      NOP      NOP
+         // i = dest+1,  límite = dest+n
+
+
+// ================================================================
+//  OUTER desenrollado x2 — steady-state
+//  Invariante al entrar: R8 apunta a i (iteración par del outer)
+//
+//        ALU1           ALU2          MEM            FP/CMP   BR
+// ================================================================
+
+OUTER:
+
+// -- Iteración i: carga especulativa de key antes del branch --
+W24:     ADD R12 R8 R0  NOP           LF F5 0(R8)    NOP      BEQ R8 R9 END
+         // j=i, key=A[i] (especulativo), si i==límite fin
+
+// esperar latencia LF F5 y calcular j-1
+W25:     ADDI R13 R12 #-1  NOP        NOP            NOP      NOP
+
+// comprobar si j ya está en la base (array de 1 elemento)
+W26:     NOP            NOP           NOP            NOP      BEQ R12 R3 ADVANCE_I
+
+// -- INNER para iteración i --
+
+INNER_I:
+W27:     NOP            NOP           LF F6 0(R13)   NOP      NOP      // A[j-1]
+W28:     NOP            NOP           NOP            NOP      NOP      // latencia LF F6
+W29:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_I  NOP
+W30:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_I
+
+SHIFT_I:
+// planificación local: SUB R12 y SF independientes → misma palabra
+W31:     SUB R12 R13 R0 ADDI R13 R12 #-1  SF F6 0(R12)  NOP  NOP
+         // j=j-1, nuevo j-1=R13, A[j]=A[j-1]
+W32:     NOP            NOP           NOP            NOP      BEQ R12 R3 INSERT_I
+W33:     NOP            NOP           LF F6 0(R13)   NOP      NOP
+W34:     NOP            NOP           NOP            NOP      NOP
+W35:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_I  NOP
+W36:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_I
+
+INSERT_I:
+W37:     NOP            NOP           SF F5 0(R12)   NOP      NOP      // A[j]=key
+
+// -- Avanzar i y prefetch especulativo de key(i+1) --
+ADVANCE_I:
+W38:     ADDI R8 R8 #1  NOP           LF F5 0(R8)    NOP      BEQ R8 R9 END
+         // i++, key(i+1) especulativo, si i+1==límite fin
+
+// esperar latencia + calcular j para iteración i+1
+W39:     ADD R12 R8 R0  NOP           NOP            NOP      NOP      // j = i+1
+W40:     ADDI R13 R12 #-1  NOP        NOP            NOP      NOP      // j-1
+
+W41:     NOP            NOP           NOP            NOP      BEQ R12 R3 ADVANCE_I1
+
+// -- INNER para iteración i+1 (F5 ya tiene key(i+1)) --
+
+INNER_I1:
+W42:     NOP            NOP           LF F6 0(R13)   NOP      NOP
+W43:     NOP            NOP           NOP            NOP      NOP
+W44:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_I1  NOP
+W45:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_I1
+
+SHIFT_I1:
+W46:     SUB R12 R13 R0 ADDI R13 R12 #-1  SF F6 0(R12)  NOP  NOP
+W47:     NOP            NOP           NOP            NOP      BEQ R12 R3 INSERT_I1
+W48:     NOP            NOP           LF F6 0(R13)   NOP      NOP
+W49:     NOP            NOP           NOP            NOP      NOP
+W50:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_I1  NOP
+W51:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_I1
+
+INSERT_I1:
+W52:     NOP            NOP           SF F5 0(R12)   NOP      NOP      // A[j]=key(i+1)
+
+// -- Avanzar i y volver al tope del outer --
+ADVANCE_I1:
+W53:     ADDI R8 R8 #1  NOP           NOP            NOP      BEQ R0 R0 OUTER
+         // i++ y salto incondicional al steady-state
+
+
+// ================================================================
+//  EPÍLOGO OUTER — última iteración suelta
+//  (existe siempre porque n-1 es impar con n múltiplo de 4)
+//  R8 == dest+n-1, cargamos key y ejecutamos INNER una vez.
+//
+//        ALU1           ALU2          MEM            FP/CMP   BR
+// ================================================================
+
+// (llegamos aquí desde W38 cuando i+1 era el límite)
+// F5 ya fue cargado especulativamente en W38 con A[dest+n-1]
+W54:     ADD R12 R8 R0  ADDI R13 R12 #-1  NOP        NOP      BEQ R12 R3 END
+
+INNER_EP:
+W55:     NOP            NOP           LF F6 0(R13)   NOP      NOP
+W56:     NOP            NOP           NOP            NOP      NOP
+W57:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_EP  NOP
+W58:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_EP
+
+SHIFT_EP:
+W59:     SUB R12 R13 R0 ADDI R13 R12 #-1  SF F6 0(R12)  NOP  NOP
+W60:     NOP            NOP           NOP            NOP      BEQ R12 R3 INSERT_EP
+W61:     NOP            NOP           LF F6 0(R13)   NOP      NOP
+W62:     NOP            NOP           NOP            NOP      NOP
+W63:     NOP            NOP           NOP            BGTF F6 F5 SHIFT_EP  NOP
+W64:     NOP            NOP           NOP            NOP      BEQ R0 R0 INSERT_EP
+
+INSERT_EP:
+W65:     NOP            NOP           SF F5 0(R12)   NOP      NOP
+
+END:
+
+// ================================================================
+//  RESUMEN DE GANANCIAS POR LA RESTRICCIÓN n ∈ {4,8,12,...}
+// ================================================================
+//
+//  FASE 2 (copia):
+//    - Desenrollado x4 SIN epílogo de guarda:
+//      n múltiplo de 4 garantiza 0 iteraciones residuales.
+//    - Software pipelining con buffer de 4 flotantes:
+//      prólogo fijo de 4 cargas, sin branch de protección.
+//    - Resultado: n/4 palabras VLIW por el cuerpo, latencia
+//      de memoria completamente oculta.
+//
+//  FASE 3 (sort):
+//    - n-1 iteraciones del OUTER, siempre impar con n%4==0.
+//    - Desenrollado x2 con exactamente 1 iteración de epílogo
+//      (la última, i=dest+n-1), sin branch de guarda en el
+//      cuerpo principal.
+//    - Carga especulativa de key antes de cada BEQ del OUTER:
+//      latencia de LF oculta en el cálculo de j y j-1.
+//    - INNER: planificación local (SUB+SF en misma palabra).
+//      No es posible pipelining por dependencia de flujo.
+//
+//  NOPs inevitables:
+//    W28/W34/W43/W49/W56/W62 — latencia de LF F6 antes de BGTF.
+//    En hardware con forwarding de 1 ciclo estos NOP desaparecen.
+//
+// ================================================================
